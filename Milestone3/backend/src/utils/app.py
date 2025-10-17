@@ -7,7 +7,10 @@ import os
 # -------------------------------------------------------------------
 # Paths
 # -------------------------------------------------------------------
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # src/
+BASE_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))  # backend/
+MODEL_DIR = os.path.join(BASE_DIR, "fraud_model_final")
+
 MODEL_DIR = os.path.join(BASE_DIR, "fraud_model_final")
 # Vite outputs to "dist" by default
 FRONTEND_BUILD = os.path.join(BASE_DIR, "..", "frontend", "dist")
@@ -19,6 +22,7 @@ app = Flask(__name__)
 CORS(app)
 
 def load_artifact(fname):
+    """Load model artifacts safely."""
     path = os.path.join(MODEL_DIR, fname)
     if not os.path.exists(path):
         raise FileNotFoundError(f"Missing file: {path}")
@@ -30,9 +34,10 @@ try:
     scaler = load_artifact("scaler.pkl")
     features = load_artifact("features.pkl")
     config = load_artifact("config.pkl")
+    print("✅ All model artifacts loaded successfully.")
 except Exception as e:
     print("❌ Error loading model artifacts:", e)
-    raise
+    model = scaler = features = config = None
 
 # -------------------------------------------------------------------
 # Routes
@@ -43,11 +48,12 @@ def health():
 
 @app.route("/api/features", methods=["GET"])
 def get_features():
+    if features is None:
+        return jsonify({"error": "Features not available."}), 500
     return jsonify({"features": features})
 
 @app.route("/api/transactions", methods=["GET"])
 def get_transactions():
-    # Prefer processed dataset if available, otherwise fallback to raw/empty
     candidates = [
         os.path.join(BASE_DIR, "data", "processed", "transactions_processed.csv"),
         os.path.join(BASE_DIR, "data", "processed", "bfsi_cleaned_transactions.csv"),
@@ -77,6 +83,9 @@ def _preprocess_input_df(df: pd.DataFrame) -> pd.DataFrame:
 
 @app.route("/api/predict", methods=["POST"])
 def predict():
+    if model is None or scaler is None or features is None:
+        return jsonify({"error": "Model artifacts not loaded properly."}), 500
+
     try:
         payload = request.get_json()
         if not payload:
